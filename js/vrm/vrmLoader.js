@@ -147,12 +147,15 @@ export class VRMLoader {
 
     async loadVRM(filename) {
         const { url, buffer } = await this.fetchAssetBuffer(filename);
+        
+        // Buat url bersih tanpa parameter query string untuk dibaca GLTFLoader
+        const cleanUrl = url.split('?')[0];
 
         return new Promise((resolve, reject) => {
             try {
                 this.loader.parse(
                     buffer,
-                    url,
+                    cleanUrl, // Menggunakan cleanUrl
                     (gltf) => {
                         const vrm = gltf.userData.vrm;
                         if (!vrm) {
@@ -171,12 +174,15 @@ export class VRMLoader {
 
     async loadVRMA(filename, vrmInstance) {
         const { url, buffer } = await this.fetchAssetBuffer(filename);
+        
+        // Buat url bersih tanpa parameter query string untuk dibaca GLTFLoader
+        const cleanUrl = url.split('?')[0];
 
         return new Promise((resolve, reject) => {
             try {
                 this.loader.parse(
                     buffer,
-                    url,
+                    cleanUrl, // Menggunakan cleanUrl
                     (gltf) => {
                         const vrmAnimation = gltf.userData.vrmAnimation;
                         if (!vrmAnimation) {

@@ -6,14 +6,19 @@
         {
           "key": "Access-Control-Allow-Origin",
           "value": "*"
-        },
+        }
+      ]
+    },
+    {
+      "source": "/assets/:path*.(vrm|vrma)",
+      "headers": [
         {
           "key": "Content-Type",
-          "value": "application/octet-stream"
+          "value": "model/gltf-binary"
         },
         {
           "key": "Cache-Control",
-          "value": "public, max-age=300"
+          "value": "public, max-age=31536000, immutable"
         }
       ]
     }
