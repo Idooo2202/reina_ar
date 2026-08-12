@@ -5,10 +5,8 @@ import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-v
 /**
  * ═══════════════════════════════════════════════════════════
  * REINA MOBILE AR — VRM & VRMA Loader
- * Exact POSIX casing, encodeURIComponent for spaces,
- * isolated animation failures, VRMA skeleton binding.
- * 🚀 BARU: retry otomatis di fetchAssetBuffer buat tahan
- * gangguan jaringan sesaat (mis. ERR_HTTP2_PING_FAILED).
+ * Perbaikan path parsing, toleransi fallback animasi GLB,
+ * dan sinkronisasi nama file assets.
  * ═══════════════════════════════════════════════════════════
  */
 
@@ -19,11 +17,11 @@ export class VRMLoader {
         this.loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
 
         this.basePath = '/assets/';
-        // 🚀 DEBUG: cache-busting sementara — pastikan tiap load gak kena cache lama/rusak
         this.cacheBustVersion = Date.now();
 
         this.avatarFile = 'reina.vrm';
 
+        // 🚀 Disesuaikan dengan nama file asli di folder assets
         this.animationFiles = [
             'idle.vrma',
             'talking.vrma',
@@ -33,7 +31,7 @@ export class VRMLoader {
             'kiss.vrma',
             'sit.vrma',
             'yawn.vrma',
-            'bashful.vrma',
+            'bashfull.vrma', // Diperbaiki: menggunakan 2 huruf 'l' sesuai folder assets
             'handraising.vrma'
         ];
     }
@@ -47,7 +45,7 @@ export class VRMLoader {
         return filename.replace('.vrma', '').toLowerCase().replace(/\s+/g, '_');
     }
 
-    bindVRMAnimationClip(vrmAnimation, vrmInstance, filename) {
+    bindVRMAnimationClip(vrmAnimation, vrmInstance) {
         if (typeof vrmAnimation.createAnimationClip === 'function') {
             return vrmAnimation.createAnimationClip(vrmInstance);
         }
@@ -113,10 +111,6 @@ export class VRMLoader {
         }
     }
 
-    /**
-     * 🚀 BARU: retry sampai `maxRetries` kali kalau fetch gagal (termasuk gangguan
-     * jaringan sesaat seperti ERR_HTTP2_PING_FAILED), dengan jeda naik tiap percobaan.
-     */
     async fetchAssetBuffer(filename, maxRetries = 3) {
         const url = this.buildAssetUrl(filename);
         let lastError = null;
@@ -134,7 +128,7 @@ export class VRMLoader {
                     `[VRMLoader] Percobaan ${attempt}/${maxRetries} gagal buat ${filename}: ${error.message}`
                 );
                 if (attempt < maxRetries) {
-                    const delay = attempt * 800; // 800ms, lalu 1600ms
+                    const delay = attempt * 800;
                     await new Promise((resolve) => setTimeout(resolve, delay));
                 }
             }
@@ -145,17 +139,15 @@ export class VRMLoader {
         );
     }
 
- async loadVRM(filename) {
-        const { url, buffer } = await this.fetchAssetBuffer(filename);
-        
-        // Memotong string URL agar bersih dari parameter '?v=...' sebelum dibaca parser
-        const cleanUrlString = url.split('?')[0];
+    async loadVRM(filename) {
+        const { buffer } = await this.fetchAssetBuffer(filename);
 
         return new Promise((resolve, reject) => {
             try {
+                // 🚀 PERBAIKAN: Menggunakan basePath ('/assets/') sebagai resource path
                 this.loader.parse(
                     buffer,
-                    cleanUrlString,
+                    this.basePath,
                     (gltf) => {
                         const vrm = gltf.userData.vrm;
                         if (!vrm) {
@@ -173,33 +165,39 @@ export class VRMLoader {
     }
 
     async loadVRMA(filename, vrmInstance) {
-        const { url, buffer } = await this.fetchAssetBuffer(filename);
-        
-        // Memotong string URL agar bersih dari parameter '?v=...' sebelum dibaca parser
-        const cleanUrlString = url.split('?')[0];
+        const { buffer } = await this.fetchAssetBuffer(filename);
 
         return new Promise((resolve, reject) => {
             try {
+                // 🚀 PERBAIKAN: Menggunakan basePath ('/assets/') sebagai resource path
                 this.loader.parse(
                     buffer,
-                    cleanUrlString,
+                    this.basePath,
                     (gltf) => {
                         const vrmAnimation = gltf.userData.vrmAnimation;
-                        if (!vrmAnimation) {
-                            reject(
-                                new Error(
-                                    `[VRMLoader] Tidak ada VRMAnimation di ${filename}`
-                                )
+
+                        // 1. Jika ini file VRMAnimation resmi (.vrma)
+                        if (vrmAnimation) {
+                            const clip = this.bindVRMAnimationClip(
+                                vrmAnimation,
+                                vrmInstance
                             );
+                            resolve(clip);
                             return;
                         }
 
-                        const clip = this.bindVRMAnimationClip(
-                            vrmAnimation,
-                            vrmInstance,
-                            filename
+                        // 2. 🚀 FALLBACK: Jika ini file animasi glTF/GLB biasa
+                        if (gltf.animations && gltf.animations.length > 0) {
+                            console.log(`[VRMLoader] Memakai fallback GLTF animation untuk ${filename}`);
+                            resolve(gltf.animations[0]);
+                            return;
+                        }
+
+                        reject(
+                            new Error(
+                                `[VRMLoader] Tidak ada VRMAnimation atau gltf.animations di ${filename}`
+                            )
                         );
-                        resolve(clip);
                     },
                     (err) =>
                         reject(
