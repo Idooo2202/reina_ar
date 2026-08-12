@@ -1,7 +1,7 @@
 {
   "headers": [
     {
-      "source": "/(.*\\.(vrm|vrma))",
+      "source": "/assets/:filename*.(vrm|vrma)",
       "headers": [
         {
           "key": "Access-Control-Allow-Origin",
