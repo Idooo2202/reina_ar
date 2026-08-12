@@ -7,6 +7,8 @@ import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-v
  * REINA MOBILE AR — VRM & VRMA Loader
  * Exact POSIX casing, encodeURIComponent for spaces,
  * isolated animation failures, VRMA skeleton binding.
+ * 🚀 BARU: retry otomatis di fetchAssetBuffer buat tahan
+ * gangguan jaringan sesaat (mis. ERR_HTTP2_PING_FAILED).
  * ═══════════════════════════════════════════════════════════
  */
 
@@ -109,19 +111,36 @@ export class VRMLoader {
         }
     }
 
-    async fetchAssetBuffer(filename) {
+    /**
+     * 🚀 BARU: retry sampai `maxRetries` kali kalau fetch gagal (termasuk gangguan
+     * jaringan sesaat seperti ERR_HTTP2_PING_FAILED), dengan jeda naik tiap percobaan.
+     */
+    async fetchAssetBuffer(filename, maxRetries = 3) {
         const url = this.buildAssetUrl(filename);
-        try {
-            const response = await fetch(url);
-            if (!response.ok) {
-                throw new Error(`Status ${response.status}`);
+        let lastError = null;
+
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                const response = await fetch(url, { cache: 'no-store' });
+                if (!response.ok) {
+                    throw new Error(`Status ${response.status}`);
+                }
+                return { url, buffer: await response.arrayBuffer() };
+            } catch (error) {
+                lastError = error;
+                console.warn(
+                    `[VRMLoader] Percobaan ${attempt}/${maxRetries} gagal buat ${filename}: ${error.message}`
+                );
+                if (attempt < maxRetries) {
+                    const delay = attempt * 800; // 800ms, lalu 1600ms
+                    await new Promise((resolve) => setTimeout(resolve, delay));
+                }
             }
-            return { url, buffer: await response.arrayBuffer() };
-        } catch (error) {
-            throw new Error(
-                `[VRMLoader] Failed to fetch ${filename} at ${url} — ${error.message}`
-            );
         }
+
+        throw new Error(
+            `[VRMLoader] Failed to fetch ${filename} at ${url} — ${lastError?.message} (gagal setelah ${maxRetries}x percobaan)`
+        );
     }
 
     async loadVRM(filename) {
