@@ -32,9 +32,9 @@ export class VRMLoader {
             'welcome.vrma',
             'kiss.vrma',
             'sit.vrma',
-            'Yawn.vrma',
-            'Bashful.vrma',
-            'Hand Raising.vrma'
+            'yawn.vrma',
+            'bashful.vrma',
+            'handraising.vrma'
         ];
     }
 
@@ -145,14 +145,17 @@ export class VRMLoader {
         );
     }
 
-    async loadVRM(filename) {
+ async loadVRM(filename) {
         const { url, buffer } = await this.fetchAssetBuffer(filename);
+        
+        // Memotong string URL agar bersih dari parameter '?v=...' sebelum dibaca parser
+        const cleanUrlString = url.split('?')[0];
 
         return new Promise((resolve, reject) => {
             try {
                 this.loader.parse(
                     buffer,
-                    url,
+                    cleanUrlString,
                     (gltf) => {
                         const vrm = gltf.userData.vrm;
                         if (!vrm) {
@@ -171,12 +174,15 @@ export class VRMLoader {
 
     async loadVRMA(filename, vrmInstance) {
         const { url, buffer } = await this.fetchAssetBuffer(filename);
+        
+        // Memotong string URL agar bersih dari parameter '?v=...' sebelum dibaca parser
+        const cleanUrlString = url.split('?')[0];
 
         return new Promise((resolve, reject) => {
             try {
                 this.loader.parse(
                     buffer,
-                    url,
+                    cleanUrlString,
                     (gltf) => {
                         const vrmAnimation = gltf.userData.vrmAnimation;
                         if (!vrmAnimation) {
