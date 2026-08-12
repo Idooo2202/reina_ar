@@ -245,8 +245,7 @@ class App {
             this.addChatMessage('system', 'Mode Berkendara AKTIF — panggil "Reina" atau "sayang" kapan aja, tangan bebas!');
         }
 
-        // 🚀 Sambungin ke motorEvent kalau ada method start/stop riding khusus
-        // (disesuaikan lagi setelah isi motorEvent.js dikonfirmasi)
+        // 🚀 Sambungin ke motorEvent — pose duduk terkunci selama mode berkendara aktif
         if (this.motorEvent?.setRideMode) {
             this.motorEvent.setRideMode(this.rideModeActive);
         }
@@ -286,9 +285,11 @@ class App {
         this.setChatEnabled(false);
         this.addChatMessage('user', text);
 
-        if (this.motorEvent?.checkTrigger(text)) {
-            this.motorEvent.start();
-            this.addChatMessage('system', 'Memulai urutan Naik Motor!');
+        // 🚀 Deteksi frasa naik/turun motor lewat chat ATAU suara (termasuk mode hands-free)
+        if (this.motorEvent?.checkTrigger(text) && !this.rideModeActive) {
+            this.toggleRideMode(); // otomatis nyalain hands-free juga, biar langsung siap dipakai
+        } else if (this.motorEvent?.checkStopTrigger(text) && this.rideModeActive) {
+            this.toggleRideMode();
         }
 
         if (!this.apiService.isConfigured()) {
