@@ -1,27 +1,26 @@
 {
-    "name": "Reina Mobile AR",
-    "short_name": "Reina AR",
-    "description": "Interactive WebXR AR companion — chat, emote, and explore in augmented reality.",
-    "start_url": "./index.html",
-    "scope": "./",
-    "display": "standalone",
-    "orientation": "portrait",
-    "theme_color": "#0a0a1a",
-    "background_color": "#0a0a1a",
-    "categories": ["entertainment", "social"],
-    "lang": "id",
-    "icons": [
+  "headers": [
+    {
+      "source": "/assets/(.*)",
+      "headers": [
         {
-            "src": "icons/icon-192.png",
-            "sizes": "192x192",
-            "type": "image/png",
-            "purpose": "any maskable"
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        }
+      ]
+    },
+    {
+      "source": "/assets/:path*.(vrm|vrma)",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "model/gltf-binary"
         },
         {
-            "src": "icons/icon-512.png",
-            "sizes": "512x512",
-            "type": "image/png",
-            "purpose": "any maskable"
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
         }
-    ]
+      ]
+    }
+  ]
 }
