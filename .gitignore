@@ -1,0 +1,37 @@
+# ==========================================
+# Reina Mobile AR - .gitignore
+# ==========================================
+
+# 1. Konfigurasi Editor (VS Code, dll)
+.vscode/
+.idea/
+*.suo
+*.sln
+
+# 2. File Sistem Operasi (Windows & Mac/Linux)
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# 3. Dependencies & Node.js (Jika ditambahkan nanti)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# 4. Environment Variables (Sangat penting agar API Key lokal tidak bocor)
+.env
+.env.*
+!.env.example
+
+# 5. Vercel & Hosting 
+.vercel/
+.vercel
+dist/
+build/
+.next/

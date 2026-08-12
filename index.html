@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0a0a1a">
+    <meta name="description" content="Reina Mobile AR — Interactive WebXR AR Companion">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+    <title>Reina Mobile AR</title>
+
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="css/style.css">
+
+    <!-- 🚀 BARU: style minimal buat tombol Mode Berkendara (self-contained, gak gantung ke style.css) -->
+    <style>
+        #btn-ride-mode.active {
+            color: #e040fb;
+            border-color: #e040fb;
+            box-shadow: 0 0 8px rgba(224, 64, 251, 0.6);
+        }
+        #btn-ride-mode.wake-flash {
+            animation: reina-wake-flash 0.4s ease-out;
+        }
+        @keyframes reina-wake-flash {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.25); box-shadow: 0 0 16px rgba(224, 64, 251, 0.9); }
+            100% { transform: scale(1); }
+        }
+    </style>
+
+    <!-- ═══════════════════════════════════════════════════════
+         IMPORT MAP — CDN-based ES Module resolution
+         Three.js r180 + @pixiv/three-vrm v3 ecosystem
+         ═══════════════════════════════════════════════════════ -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+            "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3/lib/three-vrm.module.min.js",
+            "@pixiv/three-vrm-core": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm-core@3/lib/three-vrm-core.module.min.js",
+            "@pixiv/three-vrm-animation": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm-animation@3/lib/three-vrm-animation.module.min.js"
+        }
+    }
+    </script>
+</head>
+<body>
+    <!-- ═══════════════════════════════════════════
+         LOADING SCREEN
+         ═══════════════════════════════════════════ -->
+    <div id="loading-screen">
+        <div class="loader-content">
+            <div class="spinner-ring">
+                <div class="spinner-track"></div>
+            </div>
+            <h2 class="loader-title">Reina Mobile AR</h2>
+            <p id="loading-text">Mempersiapkan dunia AR...</p>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════
+         3D CANVAS CONTAINER
+         Three.js renderer appends <canvas> here
+         ═══════════════════════════════════════════ -->
+    <div id="canvas-container"></div>
+
+    <!-- ═══════════════════════════════════════════
+         AR OVERLAY — dom-overlay root for WebXR
+         All interactive UI during AR session
+         ═══════════════════════════════════════════ -->
+    <div id="overlay">
+        <!-- Top Bar -->
+        <header class="top-bar">
+            <h1 class="app-title">✦ Reina AR</h1>
+            <div class="top-actions">
+                <!-- 🚀 BARU: Toggle Mode Berkendara (hands-free, buat naik motor) -->
+                <button id="btn-ride-mode" class="icon-btn" aria-label="Mode Berkendara" title="Mode Berkendara (hands-free)">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="5" cy="17" r="3"/><circle cx="19" cy="17" r="3"/>
+                        <path d="M5 17h6l3-6h4l2 4M14 6h3l2 5"/>
+                    </svg>
+                </button>
+                <button id="btn-settings" class="icon-btn" aria-label="Settings" title="Settings">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- AR Status Indicator -->
+        <div id="ar-status" class="ar-status hidden">
+            <span class="status-dot"></span>
+            <span id="status-text">Arahkan ke lantai, lalu sentuh untuk menempatkan Reina</span>
+        </div>
+
+        <!-- Chat Messages Area -->
+        <div id="chat-area" class="chat-area">
+            <div id="chat-messages" class="chat-messages"></div>
+        </div>
+
+        <!-- Chat Input Bar -->
+        <div class="chat-input-container">
+            <button id="btn-mic" class="mic-btn" aria-label="Input suara" title="Bicara ke Reina">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                    <line x1="12" y1="19" x2="12" y2="23"/>
+                    <line x1="8" y1="23" x2="16" y2="23"/>
+                </svg>
+            </button>
+            <input
+                type="text"
+                id="chat-input"
+                placeholder="Ngobrol sama Reina..."
+                autocomplete="off"
+                autocorrect="off"
+                spellcheck="false"
+            >
+            <button id="btn-send" class="send-btn" aria-label="Kirim pesan">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                    <path d="M22 2L11 13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Enter AR Button -->
+        <button id="btn-ar" class="ar-btn hidden">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M2 7l10-5 10 5-10 5L2 7z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+            </svg>
+            <span>Masuk Mode AR</span>
+        </button>
+    </div>
+
+    <!-- ═══════════════════════════════════════════
+         SETTINGS MODAL
+         ═══════════════════════════════════════════ -->
+    <div id="settings-modal" class="modal hidden">
+        <div class="modal-backdrop" id="modal-backdrop"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>⚙ Pengaturan</h2>
+                <button id="btn-close-settings" class="icon-btn" aria-label="Tutup">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="api-key-input">Gemini API Key</label>
+                    <input type="password" id="api-key-input" placeholder="Masukkan API key kamu...">
+                    <p class="hint">
+                        Dapatkan key dari
+                        <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>
+                    </p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-save-settings" class="primary-btn">Simpan</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════
+         APPLICATION MODULE ENTRY POINT
+         ═══════════════════════════════════════════ -->
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
