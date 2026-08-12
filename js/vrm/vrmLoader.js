@@ -19,6 +19,8 @@ export class VRMLoader {
         this.loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
 
         this.basePath = '/assets/';
+        // 🚀 DEBUG: cache-busting sementara — pastikan tiap load gak kena cache lama/rusak
+        this.cacheBustVersion = Date.now();
 
         this.avatarFile = 'reina.vrm';
 
@@ -38,7 +40,7 @@ export class VRMLoader {
 
     buildAssetUrl(filename) {
         const encodedFilename = encodeURI(filename);
-        return `${this.basePath}${encodedFilename}`;
+        return `${this.basePath}${encodedFilename}?v=${this.cacheBustVersion}`;
     }
 
     normalizeClipKey(filename) {
