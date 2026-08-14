@@ -5,19 +5,16 @@ import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-v
 /**
  * ═══════════════════════════════════════════════════════════
  * REINA MOBILE AR — VRM & VRMA Loader
- * Perbaikan path parsing, toleransi fallback animasi GLB,
- * dan sinkronisasi nama file assets.
- * 🚀 GANTI: cache-busting sekarang versi manual (bukan Date.now()
- * yang selalu beda tiap reload) — biar Service Worker & cache
- * Vercel bisa kepake lagi buat kunjungan berulang.
+ * 🚀 FIX AKAR MASALAH T-POSE: property yang bener itu
+ * "userData.vrmAnimations" (JAMAK, array) — bukan
+ * "userData.vrmAnimation" (tunggal) yang dipakai sejak awal.
+ * Dikonfirmasi dari source code resmi pixiv/three-vrm.
  * ═══════════════════════════════════════════════════════════
  */
 
 export class VRMLoader {
     constructor() {
-        // 🚀 PERBAIKAN: loader terpisah buat avatar vs animasi, biar plugin
-        // VRMLoaderPlugin (nyari data karakter) gak "nabrak" VRMAnimationLoaderPlugin
-        // pas parsing file .vrma (yang emang gak punya data karakter sama sekali).
+        // Loader terpisah buat avatar vs animasi (best practice dari contoh resmi)
         this.loaderVRM = new GLTFLoader();
         this.loaderVRM.register((parser) => new VRMLoaderPlugin(parser));
 
@@ -26,14 +23,11 @@ export class VRMLoader {
 
         this.basePath = '/assets/';
 
-        // 🚀 Versi manual — NAIKIN angka ini tiap kali file di assets/ diganti/diupdate,
-        // biar browser & Vercel tau harus ambil versi baru, bukan Date.now() yang
-        // selalu beda tiap reload (itu bikin cache gak pernah kepake sama sekali).
-        this.cacheBustVersion = '3'; // v3: setelah patch extensionsRequired
+        // Versi manual — NAIKIN angka ini tiap kali file di assets/ diganti/diupdate
+        this.cacheBustVersion = '4'; // v4: fix akar masalah userData.vrmAnimations
 
         this.avatarFile = 'reina.vrm';
 
-        // 🚀 Disesuaikan dengan nama file asli di folder assets
         this.animationFiles = [
             'idle.vrma',
             'talking.vrma',
@@ -43,7 +37,7 @@ export class VRMLoader {
             'kiss.vrma',
             'sit.vrma',
             'yawn.vrma',
-            'bashfull.vrma', // Diperbaiki: menggunakan 2 huruf 'l' sesuai folder assets
+            'bashfull.vrma',
             'handraising.vrma'
         ];
     }
@@ -65,13 +59,13 @@ export class VRMLoader {
     }
 
     async loadAll(onProgress) {
-        console.error('🔴🔴🔴 [VRMLoader] Memulai proses muat aset... (kalau baris ini gak muncul, filter console kamu masih nyembunyiin sesuatu) 🔴🔴🔴');
+        console.log('[VRMLoader] Memulai proses muat aset...');
         const totalItems = this.animationFiles.length + 1;
         let loadedItems = 0;
 
         const tick = (label) => {
             loadedItems++;
-            console.error(`🔴[VRMLoader] Loaded: ${label} (${loadedItems}/${totalItems})`);
+            console.log(`[VRMLoader] Loaded: ${label} (${loadedItems}/${totalItems})`);
             if (onProgress) onProgress(loadedItems / totalItems);
         };
 
@@ -115,7 +109,7 @@ export class VRMLoader {
                 throw new Error("[VRMLoader] 'idle.vrma' wajib ada — inisialisasi avatar gagal.");
             }
 
-            console.error(`🔴[VRMLoader] Selesai: ${clips.size}/${this.animationFiles.length} animasi.`);
+            console.log(`[VRMLoader] Selesai: ${clips.size}/${this.animationFiles.length} animasi.`);
             return { vrm, clips };
         } catch (error) {
             console.error('[VRMLoader] FATAL:', error);
@@ -136,7 +130,7 @@ export class VRMLoader {
                 return { url, buffer: await response.arrayBuffer() };
             } catch (error) {
                 lastError = error;
-                console.error(
+                console.warn(
                     `[VRMLoader] Percobaan ${attempt}/${maxRetries} gagal buat ${filename}: ${error.message}`
                 );
                 if (attempt < maxRetries) {
@@ -184,26 +178,25 @@ export class VRMLoader {
                     buffer,
                     this.basePath,
                     (gltf) => {
-                        const vrmAnimation = gltf.userData.vrmAnimation;
+                        // 🚀 FIX AKAR MASALAH: "vrmAnimations" (JAMAK, array) — bukan
+                        // "vrmAnimation" (tunggal) yang dipakai sejak awal. Ini penyebab
+                        // T-pose selama ini, bukan soal specVersion/extensionsRequired/versi library.
+                        const vrmAnimations = gltf.userData.vrmAnimations;
+                        const vrmAnimation = (vrmAnimations && vrmAnimations.length > 0)
+                            ? vrmAnimations[0]
+                            : null;
 
-                        // 1. Jika ini file VRMAnimation resmi (.vrma) — jalur normal, hasil paling akurat
                         if (vrmAnimation) {
-                            console.error(`🟢[VRMLoader] vrmAnimation KETEMU untuk ${filename} — pakai jalur normal (retargeted).`);
-                            const clip = this.bindVRMAnimationClip(
-                                vrmAnimation,
-                                vrmInstance
-                            );
+                            const clip = this.bindVRMAnimationClip(vrmAnimation, vrmInstance);
                             resolve(clip);
                             return;
                         }
 
-                        // 2. Fallback: kalau plugin gak nemu vrmAnimation (mis. specVersion belum
-                        //    dipatch), coba pakai gltf.animations mentah. CATATAN: ini gak di-retarget
-                        //    ke skeleton, jadi berpotensi gak nempel ke bone dan avatar diem T-pose.
+                        // Fallback (safety net) — seharusnya udah gak pernah kepake lagi
                         if (gltf.animations && gltf.animations.length > 0) {
-                            console.error(
+                            console.warn(
                                 `[VRMLoader] Fallback GLTF animation untuk ${filename} — ` +
-                                `kalau avatar T-pose, jalanin patch_vrma_specversion.py dulu.`
+                                `userData.vrmAnimations kosong, ini seharusnya gak kejadian lagi.`
                             );
                             resolve(gltf.animations[0]);
                             return;
@@ -211,7 +204,7 @@ export class VRMLoader {
 
                         reject(
                             new Error(
-                                `[VRMLoader] Tidak ada VRMAnimation atau gltf.animations di ${filename}`
+                                `[VRMLoader] Tidak ada vrmAnimations atau gltf.animations di ${filename}`
                             )
                         );
                     },
