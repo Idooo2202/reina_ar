@@ -24,7 +24,7 @@ export class VRMLoader {
         // 🚀 Versi manual — NAIKIN angka ini tiap kali file di assets/ diganti/diupdate,
         // biar browser & Vercel tau harus ambil versi baru, bukan Date.now() yang
         // selalu beda tiap reload (itu bikin cache gak pernah kepake sama sekali).
-        this.cacheBustVersion = '2'; // v2: setelah patch specVersion di file .vrma
+        this.cacheBustVersion = '3'; // v2: setelah patch specVersion di file .vrma
 
         this.avatarFile = 'reina.vrm';
 
