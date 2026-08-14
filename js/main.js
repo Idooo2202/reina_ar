@@ -314,9 +314,6 @@ class App {
 
             if (cleanText) {
                 this.apiService.speak(cleanText, this.isPlaced ? this.animationManager : null, {
-                    onBoundary: (event, fullText) => {
-                        this.speechController?.handleBoundary(event, fullText);
-                    },
                     onComplete: () => {
                         this.speechController?.resetVisemes();
                     }
@@ -375,6 +372,12 @@ class App {
 
         if (this.animationManager) {
             this.animationManager.update(delta);
+        }
+
+        // 🚀 BARU: lip-sync berbasis volume audio real-time (TikTok TTS gak ada word-boundary)
+        if (this.speechController && this.apiService?.isSpeaking()) {
+            const volume = this.apiService.getVolumeLevel();
+            this.speechController.setAmplitudeViseme(volume);
         }
 
         if (this.speechController) {

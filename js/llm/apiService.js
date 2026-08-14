@@ -1,8 +1,10 @@
 /**
  * ═══════════════════════════════════════════════════════════
- * REINA MOBILE AR — Gemini API Service + TTS Engine
- * Autonomous expression-tag prompting, Indonesian TTS,
- * audio unlock on user gesture, animationManager lip-sync hooks.
+ * REINA MOBILE AR — Gemini API Service + TikTok TTS Engine
+ * Autonomous expression-tag prompting, TikTok TTS (id_001),
+ * AudioContext unlock on user gesture, volume-based lip-sync
+ * (AnalyserNode) buat animationManager sync.
+ * 🚀 GANTI: dari window.speechSynthesis (robotic) ke TikTok TTS.
  * ═══════════════════════════════════════════════════════════
  */
 
@@ -11,6 +13,10 @@ export class ApiService {
         this.apiKey = localStorage.getItem('reina_api_key') || '';
         this.endpoint =
             'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=';
+
+        // 🚀 BARU: endpoint TikTok TTS (sama kayak yang dipakai Reina PC)
+        this.ttsEndpoint = 'https://tiktok-tts.weilnet.workers.dev/api/generation';
+        this.ttsVoice = 'id_001';
 
         this.systemInstruction = `
 Kamu adalah Reina, gadis anime virtual (Virtual Companion) di lingkungan Augmented Reality.
@@ -52,19 +58,11 @@ PENTING:
 `.trim();
 
         this._speechUnlocked = false;
-        this._voices = [];
-        this._currentUtterance = null;
-        this._initVoices();
-    }
-
-    _initVoices() {
-        const load = () => {
-            this._voices = window.speechSynthesis?.getVoices() || [];
-        };
-        load();
-        if (window.speechSynthesis) {
-            window.speechSynthesis.onvoiceschanged = load;
-        }
+        this._audioContext = null;
+        this._analyserNode = null;
+        this._analyserDataArray = null;
+        this._currentSource = null;
+        this._isSpeaking = false;
     }
 
     setApiKey(key) {
@@ -77,48 +75,30 @@ PENTING:
     }
 
     /**
-     * Unlocks speechSynthesis + Web Audio on mobile (requires user gesture).
+     * Unlocks AudioContext di mobile (butuh user gesture pertama).
      */
     unlockSpeech() {
         if (this._speechUnlocked) return;
 
         try {
             const AudioCtx = window.AudioContext || window.webkitAudioContext;
-            if (AudioCtx) {
-                const ctx = new AudioCtx();
-                const buffer = ctx.createBuffer(1, 1, 22050);
-                const source = ctx.createBufferSource();
-                source.buffer = buffer;
-                source.connect(ctx.destination);
-                source.start(0);
-                if (ctx.state === 'suspended') ctx.resume();
+            if (AudioCtx && !this._audioContext) {
+                this._audioContext = new AudioCtx();
+                this._analyserNode = this._audioContext.createAnalyser();
+                this._analyserNode.fftSize = 256;
+                this._analyserNode.connect(this._audioContext.destination);
+                this._analyserDataArray = new Uint8Array(this._analyserNode.frequencyBinCount);
             }
 
-            if (window.speechSynthesis?.paused) {
-                window.speechSynthesis.resume();
+            if (this._audioContext.state === 'suspended') {
+                this._audioContext.resume();
             }
-
-            const silent = new SpeechSynthesisUtterance('');
-            silent.volume = 0;
-            window.speechSynthesis?.speak(silent);
-            window.speechSynthesis?.cancel();
 
             this._speechUnlocked = true;
-            console.log('[ApiService] Speech synthesis unlocked.');
+            console.log('[ApiService] AudioContext unlocked.');
         } catch (error) {
-            console.error('[ApiService] Gagal unlock speech:', error);
+            console.error('[ApiService] Gagal unlock audio:', error);
         }
-    }
-
-    _getIndonesianFemaleVoice() {
-        const idVoices = this._voices.filter((v) => v.lang.toLowerCase().startsWith('id'));
-        const female = idVoices.find(
-            (v) =>
-                v.name.toLowerCase().includes('female') ||
-                v.name.toLowerCase().includes('perempuan') ||
-                v.name.toLowerCase().includes('wanita')
-        );
-        return female || idVoices[0] || null;
     }
 
     async sendMessage(text) {
@@ -158,64 +138,113 @@ PENTING:
     }
 
     /**
-     * Speaks clean text via speechSynthesis, syncing animation + optional lip-sync.
+     * 🚀 BARU: Fetch audio dari TikTok TTS, return base64 mp3.
+     */
+    async _fetchTikTokAudio(text) {
+        const response = await fetch(this.ttsEndpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, voice: this.ttsVoice })
+        });
+
+        if (!response.ok) {
+            throw new Error(`TikTok TTS HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (!data.data) {
+            throw new Error('TikTok TTS: tidak ada audio yang dikembalikan (mungkin teks terlalu panjang/kosong).');
+        }
+
+        return data.data;
+    }
+
+    _base64ToArrayBuffer(base64) {
+        const binaryString = atob(base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes.buffer;
+    }
+
+    /**
+     * Speaks via TikTok TTS, syncing animation + lip-sync berbasis volume audio.
      * @param {string} text
      * @param {import('../vrm/animationManager.js').AnimationManager|null} animationManager
-     * @param {{ onBoundary?: Function, onComplete?: Function }} hooks
+     * @param {{ onComplete?: Function }} hooks
      */
-    speak(text, animationManager = null, hooks = {}) {
-        if (!text || !window.speechSynthesis) return;
+    async speak(text, animationManager = null, hooks = {}) {
+        if (!text) return;
 
         this.unlockSpeech();
-        window.speechSynthesis.cancel();
+        this.stopSpeaking(animationManager);
 
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'id-ID';
-        utterance.rate = 1.0;
-        utterance.pitch = 1.1;
+        try {
+            const base64Audio = await this._fetchTikTokAudio(text);
+            const arrayBuffer = this._base64ToArrayBuffer(base64Audio);
+            const audioBuffer = await this._audioContext.decodeAudioData(arrayBuffer);
 
-        const voice = this._getIndonesianFemaleVoice();
-        if (voice) utterance.voice = voice;
+            const source = this._audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(this._analyserNode);
 
-        this._currentUtterance = utterance;
+            this._currentSource = source;
+            this._isSpeaking = true;
 
-        utterance.onstart = () => {
-            console.log('[ApiService] TTS started.');
+            console.log('[ApiService] TTS (TikTok) started.');
             if (animationManager) animationManager.onTTSStart();
-        };
 
-        utterance.onboundary = (event) => {
-            if (hooks.onBoundary) {
-                hooks.onBoundary(event, text);
-            }
-        };
+            source.onended = () => {
+                console.log('[ApiService] TTS (TikTok) ended.');
+                this._isSpeaking = false;
+                this._currentSource = null;
+                if (animationManager) animationManager.onTTSEnd();
+                if (hooks.onComplete) hooks.onComplete();
+            };
 
-        utterance.onend = () => {
-            console.log('[ApiService] TTS ended.');
-            this._currentUtterance = null;
+            source.start(0);
+        } catch (error) {
+            console.error('[ApiService] TTS gagal:', error);
+            this._isSpeaking = false;
+            this._currentSource = null;
             if (animationManager) animationManager.onTTSEnd();
             if (hooks.onComplete) hooks.onComplete();
-        };
-
-        utterance.onerror = (event) => {
-            console.error(`[ApiService] TTS error: ${event.error}`);
-            this._currentUtterance = null;
-            if (animationManager) animationManager.onTTSEnd();
-            if (hooks.onComplete) hooks.onComplete();
-        };
-
-        window.speechSynthesis.speak(utterance);
+        }
     }
 
     stopSpeaking(animationManager = null) {
-        if (window.speechSynthesis) {
-            window.speechSynthesis.cancel();
+        if (this._currentSource) {
+            try {
+                this._currentSource.stop();
+            } catch (_) {
+                // udah berhenti/belum sempat mulai — aman diabaikan
+            }
+            this._currentSource = null;
         }
-        this._currentUtterance = null;
+        this._isSpeaking = false;
         if (animationManager) animationManager.onTTSEnd();
     }
 
     isSpeaking() {
-        return window.speechSynthesis?.speaking ?? false;
+        return this._isSpeaking;
+    }
+
+    /**
+     * 🚀 BARU: Level volume real-time (0-1) dari audio yang lagi diputar.
+     * Dipanggil tiap frame dari render loop main.js buat drive lip-sync.
+     */
+    getVolumeLevel() {
+        if (!this._analyserNode || !this._isSpeaking) return 0;
+
+        this._analyserNode.getByteFrequencyData(this._analyserDataArray);
+
+        let sum = 0;
+        for (let i = 0; i < this._analyserDataArray.length; i++) {
+            sum += this._analyserDataArray[i];
+        }
+        const average = sum / this._analyserDataArray.length;
+        return Math.min(average / 100, 1.0);
     }
 }

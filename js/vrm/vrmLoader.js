@@ -7,6 +7,9 @@ import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-v
  * REINA MOBILE AR — VRM & VRMA Loader
  * Perbaikan path parsing, toleransi fallback animasi GLB,
  * dan sinkronisasi nama file assets.
+ * 🚀 GANTI: cache-busting sekarang versi manual (bukan Date.now()
+ * yang selalu beda tiap reload) — biar Service Worker & cache
+ * Vercel bisa kepake lagi buat kunjungan berulang.
  * ═══════════════════════════════════════════════════════════
  */
 
@@ -17,7 +20,11 @@ export class VRMLoader {
         this.loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
 
         this.basePath = '/assets/';
-        this.cacheBustVersion = Date.now();
+
+        // 🚀 Versi manual — NAIKIN angka ini tiap kali file di assets/ diganti/diupdate,
+        // biar browser & Vercel tau harus ambil versi baru, bukan Date.now() yang
+        // selalu beda tiap reload (itu bikin cache gak pernah kepake sama sekali).
+        this.cacheBustVersion = '2'; // v2: setelah patch specVersion di file .vrma
 
         this.avatarFile = 'reina.vrm';
 
@@ -117,7 +124,7 @@ export class VRMLoader {
 
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                const response = await fetch(url, { cache: 'no-store' });
+                const response = await fetch(url);
                 if (!response.ok) {
                     throw new Error(`Status ${response.status}`);
                 }
@@ -144,7 +151,6 @@ export class VRMLoader {
 
         return new Promise((resolve, reject) => {
             try {
-                // 🚀 PERBAIKAN: Menggunakan basePath ('/assets/') sebagai resource path
                 this.loader.parse(
                     buffer,
                     this.basePath,
@@ -169,14 +175,13 @@ export class VRMLoader {
 
         return new Promise((resolve, reject) => {
             try {
-                // 🚀 PERBAIKAN: Menggunakan basePath ('/assets/') sebagai resource path
                 this.loader.parse(
                     buffer,
                     this.basePath,
                     (gltf) => {
                         const vrmAnimation = gltf.userData.vrmAnimation;
 
-                        // 1. Jika ini file VRMAnimation resmi (.vrma)
+                        // 1. Jika ini file VRMAnimation resmi (.vrma) — jalur normal, hasil paling akurat
                         if (vrmAnimation) {
                             const clip = this.bindVRMAnimationClip(
                                 vrmAnimation,
@@ -186,9 +191,14 @@ export class VRMLoader {
                             return;
                         }
 
-                        // 2. 🚀 FALLBACK: Jika ini file animasi glTF/GLB biasa
+                        // 2. Fallback: kalau plugin gak nemu vrmAnimation (mis. specVersion belum
+                        //    dipatch), coba pakai gltf.animations mentah. CATATAN: ini gak di-retarget
+                        //    ke skeleton, jadi berpotensi gak nempel ke bone dan avatar diem T-pose.
                         if (gltf.animations && gltf.animations.length > 0) {
-                            console.log(`[VRMLoader] Memakai fallback GLTF animation untuk ${filename}`);
+                            console.warn(
+                                `[VRMLoader] Fallback GLTF animation untuk ${filename} — ` +
+                                `kalau avatar T-pose, jalanin patch_vrma_specversion.py dulu.`
+                            );
                             resolve(gltf.animations[0]);
                             return;
                         }

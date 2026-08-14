@@ -4,8 +4,10 @@ import { VRMExpressionPresetName } from '@pixiv/three-vrm';
  * ═══════════════════════════════════════════════════════════
  * REINA MOBILE AR — Speech Controller (STT + Lip-Sync)
  * STT via webkitSpeechRecognition (id-ID).
- * Lip-sync viseme smoothing driven by TTS onboundary events.
- * 🚀 BARU: Mode hands-free (continuous + wake-word) buat naik motor.
+ * 🚀 GANTI: Lip-sync sekarang berbasis volume audio real-time
+ * (bukan lagi prediksi dari huruf/kata), karena TikTok TTS
+ * gak punya event word-boundary kayak speechSynthesis.
+ * Mode hands-free (continuous + wake-word) buat naik motor.
  * ═══════════════════════════════════════════════════════════
  */
 
@@ -16,8 +18,6 @@ const VISEME_PRESETS = {
     ee: VRMExpressionPresetName.Ee,
     oh: VRMExpressionPresetName.Oh
 };
-
-const VOWEL_TO_VISEME = { a: 'aa', i: 'ih', u: 'ou', e: 'ee', o: 'oh' };
 
 export class SpeechController {
     constructor(vrm) {
@@ -38,8 +38,8 @@ export class SpeechController {
         this.onTranscript = null;
         this.onListenError = null;
         this.onListenEnd = null;
-        this.onWakeWordDetected = null; // 🚀 hook opsional buat feedback UI ("Reina dengar!")
-        this.onIgnored = null;          // 🚀 hook opsional pas ada suara tapi bukan wake word
+        this.onWakeWordDetected = null;
+        this.onIgnored = null;
 
         this._initSTT();
     }
@@ -53,7 +53,7 @@ export class SpeechController {
 
         this.recognition = new SR();
         this.recognition.lang = 'id-ID';
-        this.recognition.continuous = false; // tetap false — browser mobile sering gak stabil kalau true, kita handle restart manual
+        this.recognition.continuous = false;
         this.recognition.interimResults = false;
         this.recognition.maxAlternatives = 1;
 
@@ -63,7 +63,6 @@ export class SpeechController {
             this.isListening = false;
 
             if (this.handsFreeMode) {
-                // 🚀 Mode hands-free: cuma diproses kalau ada wake word
                 if (this._cekWakeWord(transcript)) {
                     if (this.onWakeWordDetected) this.onWakeWordDetected(transcript);
                     if (this.onTranscript && transcript) this.onTranscript(transcript);
@@ -79,7 +78,6 @@ export class SpeechController {
         this.recognition.onerror = (event) => {
             console.error(`[SpeechController] STT error: ${event.error}`);
             this.isListening = false;
-            // 'no-speech' itu normal banget di mode hands-free (nunggu suara terus) — jangan spam error ke UI
             if (this.onListenError && !(this.handsFreeMode && event.error === 'no-speech')) {
                 this.onListenError(event.error);
             }
@@ -89,7 +87,6 @@ export class SpeechController {
             this.isListening = false;
             if (this.onListenEnd) this.onListenEnd();
 
-            // 🚀 Auto-restart terus-menerus selama mode hands-free aktif & belum dimatikan manual
             if (this.handsFreeMode && !this._manualStop) {
                 setTimeout(() => {
                     if (this.handsFreeMode && !this._manualStop) {
@@ -106,7 +103,7 @@ export class SpeechController {
     }
 
     _restartRecognition() {
-        if (this.isListening) return; // udah jalan, gak perlu restart
+        if (this.isListening) return;
         try {
             this.recognition.start();
             this.isListening = true;
@@ -122,11 +119,6 @@ export class SpeechController {
         return this.recognition !== null;
     }
 
-    /**
-     * 🚀 BARU: Aktifkan mode hands-free — selalu dengerin, cuma proses ucapan yang ada wake word-nya.
-     * Cocok buat skenario naik motor (tangan sibuk di setang, gak bisa tap layar).
-     * @param {string[]} wakeWords - daftar kata pemanggil, misal ['reina', 'sayang']
-     */
     startHandsFreeMode(wakeWords = ['reina']) {
         if (!this.recognition) return false;
         this._wakeWords = wakeWords;
@@ -137,9 +129,6 @@ export class SpeechController {
         return true;
     }
 
-    /**
-     * 🚀 BARU: Matikan mode hands-free, balik ke tap-to-talk manual.
-     */
     stopHandsFreeMode() {
         this.handsFreeMode = false;
         this._manualStop = true;
@@ -168,51 +157,17 @@ export class SpeechController {
         }
     }
 
-    handleBoundary(event, fullText) {
-        if (event.charIndex == null) return;
-
-        if (event.name === 'word') {
-            const word = fullText.substring(
-                event.charIndex,
-                event.charIndex + (event.charLength || 0)
-            );
-            this._setVisemeFromWord(word);
-        } else {
-            this._setVisemeFromChar(fullText.charAt(event.charIndex));
-        }
-    }
-
-    _setVisemeFromChar(char) {
-        const viseme = VOWEL_TO_VISEME[char.toLowerCase()];
-        if (!viseme) return;
-        for (const key of this.visemeKeys) {
-            this.visemeTargets[key] = key === viseme ? 1.0 : 0.0;
-        }
-    }
-
-    _setVisemeFromWord(word) {
-        const lower = word.toLowerCase();
-        let viseme = null;
-
-        for (let i = lower.length - 1; i >= 0; i--) {
-            if (VOWEL_TO_VISEME[lower[i]]) {
-                viseme = VOWEL_TO_VISEME[lower[i]];
-                break;
-            }
-        }
-        if (!viseme) {
-            for (let i = 0; i < lower.length; i++) {
-                if (VOWEL_TO_VISEME[lower[i]]) {
-                    viseme = VOWEL_TO_VISEME[lower[i]];
-                    break;
-                }
-            }
-        }
-        if (viseme) {
-            for (const key of this.visemeKeys) {
-                this.visemeTargets[key] = key === viseme ? 0.85 : 0.0;
-            }
-        }
+    /**
+     * 🚀 BARU: Set target viseme dari level volume audio real-time (0-1).
+     * Dipanggil tiap frame dari main.js selagi apiService.isSpeaking() true.
+     */
+    setAmplitudeViseme(volume) {
+        const v = Math.max(0, Math.min(1, volume));
+        this.visemeTargets.aa = v;
+        this.visemeTargets.ih = v * 0.3;
+        this.visemeTargets.ou = v * 0.15;
+        this.visemeTargets.ee = 0;
+        this.visemeTargets.oh = 0;
     }
 
     resetVisemes() {
