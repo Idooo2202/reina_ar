@@ -5,6 +5,9 @@ import * as THREE from 'three';
  * REINA MOBILE AR — WebXR Manager
  * local reference space, hit-test reticle, avatar grounding
  * with matrixWorld sync and SpringBone momentum reset.
+ * 🚀 FIX: onWindowResize sekarang skip kalau sesi XR lagi aktif —
+ * renderer.setSize() gak boleh dipanggil pas WebXR presenting,
+ * itu bikin warning berulang & berpotensi ganggu rendering (termasuk reticle).
  * ═══════════════════════════════════════════════════════════
  */
 
@@ -178,6 +181,14 @@ export class XRManager {
     }
 
     onWindowResize() {
+        // 🚀 FIX: JANGAN panggil setSize() pas sesi XR lagi presenting —
+        // ukuran canvas dikelola otomatis sama compositor WebXR selama sesi aktif.
+        // Ini penyebab warning "Can't change size while VR device is presenting"
+        // yang berulang-ulang, dan bisa ganggu rendering (termasuk reticle).
+        if (this.renderer.xr.isPresenting) {
+            return;
+        }
+
         this.camera.aspect = window.innerWidth / window.innerHeight;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(window.innerWidth, window.innerHeight);

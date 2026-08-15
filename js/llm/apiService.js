@@ -14,8 +14,9 @@ export class ApiService {
         this.endpoint =
             'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=';
 
-        // 🚀 BARU: endpoint TikTok TTS (sama kayak yang dipakai Reina PC)
-        this.ttsEndpoint = 'https://tiktok-tts.weilnet.workers.dev/api/generation';
+        // 🚀 GANTI: lewat proxy sendiri (/api/tts-proxy) biar gak kena CORS,
+        // bukan manggil tiktok-tts.weilnet.workers.dev langsung dari browser.
+        this.ttsEndpoint = '/api/tts-proxy';
         this.ttsVoice = 'id_001';
 
         this.systemInstruction = `
@@ -206,7 +207,7 @@ PENTING:
 
             source.start(0);
         } catch (error) {
-            console.error('[ApiService] TTS gagal:', error);
+            console.error('[ApiService] TTS gagal:', error?.message || error, error);
             this._isSpeaking = false;
             this._currentSource = null;
             if (animationManager) animationManager.onTTSEnd();
