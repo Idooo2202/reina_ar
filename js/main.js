@@ -366,7 +366,10 @@ class App {
     render(_timestamp, frame) {
         const delta = Math.min(this.clock.getDelta(), MAX_DELTA);
 
-        if (this.xrManager.isARActive && frame) {
+        // 🚀 FIX PERFORMA: hit-test cuma perlu jalan SEBELUM avatar ditempatkan.
+        // Setelah isPlaced=true, reticle udah gak dipakai lagi — hentikan
+        // frame.getHitTestResults() yang berat biar gak nge-lag terus-terusan.
+        if (this.xrManager.isARActive && frame && !this.isPlaced) {
             this.xrManager.updateHitTest(frame);
         }
 
